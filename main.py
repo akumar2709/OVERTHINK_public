@@ -60,7 +60,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='o1', help='o1, o1-mini, deepseek-reasoner')
     parser.add_argument('--attack_context_model', type=str, default='o1', help='(For ICL generatic only) o1, o1-mini, deepseek-reasoner')
     parser.add_argument('--source_model', type=str, default=None, help='(For transfer attack only) o1, o1-mini, deepseek-reasoner but only for transfer attack')
-    parser.add_argument('--num_samples', default=5, type=int)
+    #parser.add_argument('--num_samples', default=5, type=int)
     parser.add_argument('--num_shots', type=int, default=3, help='only for ICL genetic')
     parser.add_argument('--runs', type=int, default=1, help='runs for round')
     parser.add_argument('--reasoning_effort', type=str, default='low', help='only for o1')
@@ -96,6 +96,7 @@ if __name__ == '__main__':
     for idx, run in tqdm(enumerate(range(runs))):
 
         if attack_type == 'context_agnostic':
+            num_samples = 5
             output_file = os.path.join(pickle_folder, f"{attack_type}_{model}_num_samples_({num_samples})_runs_({idx}).pkl")
             filtered_samples = processed_samples.iloc[:num_samples].reset_index(drop=True)
             processed_df = context_agnostic(filtered_samples, target_context_templates, reasoning_effort, model=model, output_file=output_file)
