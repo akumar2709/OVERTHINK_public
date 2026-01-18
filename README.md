@@ -1,6 +1,6 @@
-# 🤯 OverThink: Slowdown Attacks on Reasoning LLMs
+# OverThink: Slowdown Attacks on Reasoning LLMs
 
-## 💡 Introduction 
+## Introduction 
 This is an official repository of our paper "*OverThink: Slowdown Attacks on Reasoning LLMs*". In this attack, we aim to increase the number of reasoning tokens without manipulating the generated output. 
 
 Please follow the steps below to test our **OverThink** attack.
