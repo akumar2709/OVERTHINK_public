@@ -82,7 +82,7 @@ Example:
 
 ```bash
 python public_repo_update/compile_datasets.py \
-  --freshqa-csv "public_repo_update/FreshQA_v12182024 - freshqa.csv" \
+  --freshqa-csv "FreshQA_v12182024 - freshqa.csv" \
   --output-dir public_repo_update/dataset \
   --freshqa-limit 100 \
   --squad-limit 100 \
