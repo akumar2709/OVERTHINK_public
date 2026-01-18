@@ -5,47 +5,174 @@ This is an official repository of our paper "*OverThink: Slowdown Attacks on Rea
 
 Please follow the steps below to test our **OverThink** attack.
 
-## 📝 Note 
-* To conduct ICL-Genetic Context-Agnostic or ICL-Genetic Context-Aware attack, first complete the attack without ICL-Genetic to create the pickle files.
-* We generated the pickle files in the `/pickle` folder in advance for convenience.
-* Since our attack only utilizies APIs from OpenAI's o1, o1-mini and DeepSeek-R1, it does not require any CUDA environment. Feel free to run the attack in your local environment.
-* You can download the FreshQA dataset from https://github.com/freshllms/freshqa
+# OverThink updated files
 
-## 1. Prerequisites ✅
-All experiments were done on `python==3.9.21` version. Use the following command to setup a conda environment and download required pacakages.
-```
-conda create -n overthink python==3.9.21 -y
-conda activate overthink
-pip install -r requirements.txt
+This folder holds the scripts used to (1) compile attack datasets, (2) run the context-agnostic
+attack on the Hugging Face dataset, and (3) evolve adversarial templates that maximize
+reasoning-token usage.
+
+## What is in this folder
+
+- `compile_datasets.py`: Build FreshQA, SQuAD, and MuSR attack CSVs from source data.
+- `context_agnostic_hf.py`: Run context-agnostic attacks on HF dataset splits.
+- `icl_evolve.py`: Evolve verbalized attack templates with a genetic search loop.
+- `utils.py`: Provider wrappers (OpenAI, Anthropic, Mistral, Fireworks, Google) and .env loading.
+- `dataset/`: Generated CSVs (freshQA_attack.csv, squad_attack.csv, MuSR/*).
+- `FreshQA_v12182024 - freshqa.csv`: FreshQA source CSV (used by some scripts).
+
+## Setup
+
+### Python packages
+These scripts assume a Python environment with:
+
+- Core: `pandas`, `datasets`, `requests`, `beautifulsoup4`, `tqdm`
+- Models: `openai`, `anthropic`, `mistralai`, `google-genai`
+- Plotting: `matplotlib`
+- Optional token counting: `tiktoken`
+
+Only install the model packages you plan to use.
+
+### Environment variables
+
+`utils.py` loads `.env` from the repo root (`OVERTHINK/.env`). `icl_evolve.py` loads `.env`
+next to the script (`public_repo_update/.env`). Make sure the needed keys are present in the
+right file for the script you run.
+
+Common keys:
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
+- `MISTRAL_API_KEY`
+- `FIREWORKS_API_KEY`
+- `GEMINI_API_KEY`
+
+## Datasets
+
+### FreshQA source CSV
+
+Scripts expect a FreshQA CSV with at least these columns:
+- `question`
+- `source` (Wikipedia URL(s), newline-separated)
+- `answer_0`
+- `fact_type` (used by `icl_evolve.py`; values like `none-changing` or `slow-changing`)
+
+The included file is `public_repo_update/FreshQA_v12182024 - freshqa.csv`. The default
+for `compile_datasets.py` points to `s&p_submission_exp/FreshQA_v12182024 - freshqa.csv`,
+so override with `--freshqa-csv` if you want to use the local copy.
+
+### Attack CSV format
+
+`compile_datasets.py` writes CSVs with these columns:
+- `Source`: base prompt
+- `Answer`: ground-truth answer (FreshQA and MuSR)
+- `Attack_Source_1` ... `Attack_Source_7`: attack prompts
+
+These CSVs are used to build the HF dataset splits (e.g., `freshQA_attack`).
+
+## Scripts
+
+### 1) `compile_datasets.py`
+
+Builds the FreshQA, SQuAD, and MuSR attack CSVs using 7 built-in templates.
+
+Example:
+
+```bash
+python public_repo_update/compile_datasets.py \
+  --freshqa-csv "public_repo_update/FreshQA_v12182024 - freshqa.csv" \
+  --output-dir public_repo_update/dataset \
+  --freshqa-limit 100 \
+  --squad-limit 100 \
+  --musr-limit 50
 ```
 
-## 2. Overthinking Attack ☠️
-#### Before running the attack, make sure to complete the following steps to be able to run our attack:
+Arguments:
+- `--freshqa-csv`: path to FreshQA CSV.
+- `--output-dir`: output directory for CSVs.
+- `--freshqa-limit`: number of FreshQA rows.
+- `--squad-limit`: number of SQuAD rows (from validation split).
+- `--musr-limit`: number of MuSR rows per split.
+- `--no-fetch`: skip Wikipedia fetching; use raw `source` strings instead.
+- `--skip-freshqa`, `--skip-squad`, `--skip-musr`: skip building specific datasets.
 
-### a. API keys 📍
-In the `utils.py` file, either fill in the OpenAI (`openai_api_key`), official DeepSeek API (`deepseek_api_key`), or DeepSeek Firework AI API (`deepseek_firework_api_key`) depending on your preference. *(The reason why we have two different APIs for the DeepSeek-R1 model is because official DeepSeek API faced a malicious attack, which caused an error in terms of generation*. 
+Outputs:
+- `dataset/freshQA_attack.csv`
+- `dataset/squad_attack.csv`
+- `dataset/MuSR/murder_mystery.csv`
+- `dataset/MuSR/object_placement.csv`
+- `dataset/MuSR/team_allocation.csv`
 
-### b. Hyperparameters 🛠
-Edit the following parameters in the `main.sh` bash file:
-```
-#################################
-# Set model and num_samples
-ATTACK="context_agnostic"      # context_agnostic, context_aware, heuristic_context_agnostic, heuristic_context_aware
-MODEL="deepseek_firework"      # o1, o1-mini, o3-mini, deepseek, deepseek_firework
-ATTACK_CONTEXT_MODEL="o1" # o1, o1-mini, o3-mini, deepseek, deepseek_firework
-NUM_SAMPLES=5
-NUM_SHOTS=None
-RUN=1
-REASONING_EFFORT=None
-#################################
-```
-The "heuristic_context_agnostic" hyperparamter conducts ICL-genetic Context-Agnostic attack and "heuristic_context_aware" conducts ICL-Genetic Context-Aware attack.
+### 2) `context_agnostic_hf.py`
 
-### d. Run Attack 🏃‍♂️‍➡️
-Run the following command the test our attack:
+Runs the context-agnostic attack on the Hugging Face dataset splits and saves responses
+as a pickle after each row. It also prints running averages of reasoning tokens per source.
+
+Example:
+
+```bash
+python public_repo_update/context_agnostic_hf.py \
+  --split freshQA_attack \
+  --provider OpenAI \
+  --model o1-preview \
+  --output-file freshqa_hf.pkl
 ```
-chmod +x main.sh
-./main.sh
+
+Arguments:
+- `--dataset-name`: HF dataset name (default `akumar0927/OverThink`).
+- `--split`: HF split name (e.g., `freshQA_attack`, `squad_attack`,
+  `MuSR_murder_mystery`, `MuSR_object_placement`, `MuSR_team_allocation`).
+- `--model`: model passed to the provider.
+- `--provider`: `OpenAI`, `Anthropic`, `Mistral`, `Firework`, or `Google`.
+- `--output-file`: pickle path for results.
+- `--start-index`: row index to start from.
+- `--limit`: max number of rows to process.
+- `--num-attacks`: how many `Attack_Source_*` columns to use.
+
+MuSR aliases accepted for `--split`:
+- `murder_mystery_dataset`, `object_placement_dataset`, `team_allocation_dataset`
+
+Notes:
+- Saves the pickle after each row so runs can resume.
+- Token counting uses provider metadata when available. For providers that do not
+  return reasoning tokens, the script falls back to `tiktoken` token counting if installed.
+
+### 3) `icl_evolve.py`
+
+Runs a verbalized genetic search to generate high-complexity prompt injections and scores
+them by reasoning tokens. Produces a CSV of challenges and a score trajectory plot.
+
+Example:
+
+```bash
+python public_repo_update/icl_evolve.py \
+  --freshqa-csv "public_repo_update/FreshQA_v12182024 - freshqa.csv" \
+  --top-p 0.6 \
+  --k 5 \
+  --epochs 15 \
+  --score-model o3-mini \
+  --generator-model o3-mini
 ```
-## To Do
-Add Sudoku based attack, the current repository only contains MDP based attacks.
+
+Arguments:
+- `--top-p`: nucleus sampling threshold for selecting candidate prompts.
+- `--k`: number of prompts sampled per epoch from the nucleus distribution.
+- `--epochs`: number of evolution rounds.
+- `--score-model`: model used to score reasoning tokens.
+- `--generator-model`: model used to generate new templates.
+- `--repeats`: scoring repeats per template (averaged).
+- `--sample-index`: which FreshQA row to use during scoring (from filtered subset).
+- `--freshqa-csv`: FreshQA CSV path.
+- `--output-dir`: directory for CSV and plot outputs.
+- `--no-fetch`: skip Wikipedia fetching; use raw `source` instead.
+- `--seed`: RNG seed for reproducibility.
+
+Outputs (under `--output-dir`):
+- `icl_evolve_samples_top_p_<top_p>_k_<k>.csv`
+- `icl_evolve_score_trajectory_top_p_<top_p>_k_<k>.png`
+
+## utils.py
+
+`utils.py` provides helper functions for each model provider and handles loading
+API keys from `.env`. It is imported by `context_agnostic_hf.py`.
+
+If you add new providers, keep the `provider` names in `context_agnostic_hf.py`
+in sync with the wrapper functions in `utils.py`.
