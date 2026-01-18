@@ -1,228 +1,162 @@
+import argparse
+import os
+from pathlib import Path
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+import openai
+from typing import List, Dict
+import heapq
+import math
 from openai import OpenAI
-import tiktoken
+from tqdm import tqdm
+from openai import AzureOpenAI
+import time
+import anthropic
 import requests
 import json
-from bs4 import BeautifulSoup
-import re
+from mistralai import Mistral
+import os
+from google import genai
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
 
-openai_api_key = ""
-deepseek_api_key = ""
-deepseek_firework_api_key = ""
+_ENV_LOADED = False
 
-openai_client = OpenAI(api_key=openai_api_key)
-deepseek_client = OpenAI(api_key=deepseek_api_key, base_url="https://api.deepseek.com")
 
-def extract_description(text, tag):
-    # Use a regular expression to find the content between <DESCRIPTION></DESCRIPTION>
-    search_string = f'<{tag}>(.*?)</{tag}>'
-    #print(search_string)
-    match = re.search(search_string, text,re.DOTALL)
-    if match:
-        return match.group(1)  # Return the content inside the tags
+def _manual_load_env(env_path: Path) -> None:
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+def _load_env() -> None:
+    global _ENV_LOADED
+    if _ENV_LOADED:
+        return
+    _ENV_LOADED = True
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if load_dotenv is not None:
+        load_dotenv(dotenv_path=env_path)
     else:
-        return None  # If no match is found, return None
-
-def fetch_wikipedia_article(url):
-    # Send a GET request to the Wikipedia page
-    response = requests.get(url)
-    response.raise_for_status()  # Raise an exception for HTTP errors
-
-    # Parse the page content with BeautifulSoup
-    soup = BeautifulSoup(response.content, "html.parser")
-
-    # Extract the title of the article
-    title = soup.find("h1", {"id": "firstHeading"}).text
-
-    # Extract the main content of the article
-    content_div = soup.find("div", {"id": "mw-content-text"})
-    paragraphs = content_div.find_all("p")
-
-    # Combine all paragraph texts into a single string
-    article_text = "\n".join([para.text for para in paragraphs if para.text.strip()])
-
-    return title, article_text
-    
-# Function to create prompts
-def create_prompts(question, context, target_context_templates):
-    """
-    Generate prompts for the original context and multiple target contexts.
-    """
-    prompts = {
-        "original_prompt": f'You are an helpful agent who will answer the following user question "{question}" Use the following retrieved context: "{context}".'
-    }
-    # print(prompts)
-    for i, target_template in enumerate(target_context_templates):
-        target_context = target_template + context
-        prompts[f"attack_prompt_{i+1}"] = f'You are an helpful agent who will answer the following user question"{question}". Use the following retrieved context: "{target_context}"'
-    return prompts
-
-# Function to create prompts
-def create_context(question, context, target_context_templates):
-    """
-    Generate prompts for the original context and multiple target contexts.
-    """
-    prompts = {
-        "original_prompt": f'You are an helpful agent who will answer the following user question "{question}" Use the following retrieved context: "{context}".'
-    }
-    # print(prompts)
-    for i, target_template in enumerate(target_context_templates):
-        target_context = target_template + context
-        prompts[f"attack_context_{i+1}"] = target_context
-    return prompts
-
-def create_context_weaving(question, contex_index, context, problem_templates):
-    """
-    Generate prompts for the original context and multiple target contexts.
-    """
-    prompts = {
-        "original_prompt": f'You are an helpful agent who will answer the following user question "{question}" Use the following retrieved context: "{context}".'
-    }
-    with open("weaving_template_freshQA.json", "r") as f:
-        weaving_templates_freshQA= json.load(f)
-    print(prompts)
-    for i, target_template in enumerate(problem_templates):
-        weaving_template = weaving_templates_freshQA["sample_" + str(contex_index + 1)]['template'].replace("<MDP>", problem_templates[i])
-        if weaving_templates_freshQA["sample_" + str(contex_index + 1)]['context_position'] == 1:
-            weaving_context = weaving_template + context
-        else:
-            weaving_context = context + weaving_template
-        prompts[f"attack_context_{i+1}"] = weaving_context
-    return prompts
-
-# Function to create prompts
-def create_prompts_weaving(question, contex_index, context, problem_templates):
-    """
-    Generate prompts for the original context and multiple target contexts.
-    """
-    prompts = {
-        "original_prompt": f'You are an helpful agent who will answer the following user question "{question}" Use the following retrieved context: "{context}".'
-    }
-    with open("weaving_template_freshQA.json", "r") as f:
-        weaving_templates_freshQA = json.load(f)
-    # print(prompts)
-    for i, target_template in enumerate(problem_templates):
-        weaving_template = weaving_templates_freshQA["sample_" + str(contex_index + 1)]['template'].replace("<MDP>", problem_templates[i])
-        if weaving_templates_freshQA["sample_" + str(contex_index + 1)]['context_position'] == 1:
-            target_context = weaving_template + context
-        else:
-            target_context = context + weaving_template
-        prompts[f"attack_prompt_{i+1}"] = f'You are an helpful agent who will answer the following user question"{question}". Use the following retrieved context: "{target_context}"'
-    return prompts
-
-def count_tokens(text, model="gpt-3.5-turbo"):
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-    except KeyError:
-        print(f"Warning: model {model} not found. Using cl100k_base encoding.")
-        encoding = tiktoken.get_encoding("cl100k_base")
-    
-    token_count = len(encoding.encode(text))
-    return token_count
+        _manual_load_env(env_path)
 
 
-def run_command(prompt, model, reasoning_effort='low'):
+def _get_env(name: str) -> str:
+    _load_env()
+    value = os.getenv(name)
+    if not value:
+        raise ValueError(f"Missing {name} in .env or environment.")
+    return value
+
+def run_command_firework(prompt, model="deepseek_firework"):
     # print('prompt: ', prompt)
-    messages=[{"role": "user", "content": prompt}]
+    client = OpenAI(
+        api_key=_get_env("FIREWORKS_API_KEY"),
+        base_url="https://api.fireworks.ai/inference/v1"
+    )
 
-    if model == "deepseek_firework":
-        # Fireworks DeepSeek-R1 generation
-        payload = {
-                "model": "accounts/fireworks/models/deepseek-r1",
-                "max_tokens": 1000000000,
-                "top_p": 1,
-                "top_k": 35,
-                "presence_penalty": 0,
-                "frequency_penalty": 0,
-                "temperature": 0.6,
-                "messages": messages
-        }
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{
+            "role": "user",
+            "content": prompt
+        }]
+    )
+    return response
 
-        headers = {
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Authorization": deepseek_firework_api_key
-        }
+def run_command_mistral(prompt, model="magistral-small-2509"):
+    with Mistral(
+        api_key=_get_env("MISTRAL_API_KEY")) as mistral:
 
-        url = "https://api.fireworks.ai/inference/v1/chat/completions"
-        response = requests.request("POST", url, headers=headers, data=json.dumps(payload))
+        mist_res = mistral.chat.complete(model=model, messages=[
+            {
+                "content": prompt,
+                "role": "user",
+            },
+        ], stream=False)
+    return mist_res
 
-        # Reasoning content
-        response_dict = json.loads(response.text)
-        # print(response_dict)
-        content = response_dict["choices"][0]['message']['content']
-        completion_tokens = response_dict['usage']['completion_tokens']
+def run_command_gemini(prompt):
+    client = genai.Client(api_key=_get_env("GEMINI_API_KEY"))
 
-        # print(response_dict)
-        # print("*"*100)
-        # print(content)
-        text = (content.split('<think>')[1]).split('</think>')[1]
-        reasoning_content = (content.split('<think>')[1]).split('</think>')[0]
-    
-        # Count tokens
-        input_tokens = count_tokens(prompt)
-        reasoning_tokens = count_tokens(reasoning_content)
-        output_tokens = count_tokens(text)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+    )
+    return response    
 
-        print("input_tokens: ", input_tokens)
-        print("output_tokens: ", output_tokens)
-        print("reasoning_tokens: ", reasoning_tokens)
-        print("*"*100)
 
-        return {'text': text, 
-                'input tokens': input_tokens,
-                'output tokens': output_tokens,
-                'reasoning tokens':reasoning_tokens, 
-                "entire respose":response.text}
 
-    elif model == 'deepseek':
-        print(f'prompt: {prompt}', )
-        client = OpenAI(api_key=deepseek_api_key, base_url="https://api.deepseek.com")
-
-        # Round 1
-        messages = [{"role": "user", "content": prompt}]
-        response = client.chat.completions.create(
-            model="deepseek-reasoner",
-            messages=messages,
-            max_tokens=8192
+def anthropic_run_command_sonnet_reasoning(user_prompt, system_prompt=None):
+    client = anthropic.Anthropic(
+            api_key=_get_env("ANTHROPIC_API_KEY"),
         )
 
-        text = response.choices[0].message.content
-        reasoning_tokens = response.usage.completion_tokens_details.reasoning_tokens
-        input_tokens = response.usage.prompt_tokens
-        output_tokens = response.usage.completion_tokens - reasoning_tokens
+    time_to_wait = 5
+    for i in range(10):     
+        try:            
+            if system_prompt is None:
+                response = client.messages.create(
+                    model="claude-3-7-sonnet-20250219",
+                    max_tokens=20000,
+                    stream=False,        
+                    thinking={
+                        "type": "enabled",
+                        "budget_tokens": 16000
+                    },      
+                    messages=[{
+                        "role": "user", 
+                        "content": user_prompt
+                    }])
+            else:
+                response = client.messages.create(
+                    model="claude-3-7-sonnet-20250219",
+                    system=system_prompt,
+                    max_tokens=20000,
+                    stream=False,        
+                    thinking={
+                        "type": "enabled",
+                        "budget_tokens": 16000
+                    },       
+                    messages=[{
+                        "role": "user", 
+                        "content": user_prompt
+                    }])                
+        except:
+            print("here 3")
+            time.sleep(time_to_wait)
+            time_to_wait = time_to_wait*2
+        else:
+            break            
+    print(response)        
+    return {'text': response.content[1].text,
+           'response':response}
 
-        print("input_tokens: ", input_tokens)
-        print("output_tokens: ", output_tokens)
-        print("reasoning_tokens: ", reasoning_tokens)
-        
-        return {'text': text, 
-                'input tokens': input_tokens,
-                'output tokens': output_tokens,
-                'reasoning tokens':reasoning_tokens, 
-                "entire respose":response}
-
-    else:
-        print(f"reasoning effort: {reasoning_effort}")
-        response = openai_client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    reasoning_effort=reasoning_effort
-                    )
-        
-        text = response.choices[0].message.content
-        reasoning_tokens = response.usage.completion_tokens_details.reasoning_tokens
-        input_tokens = response.usage.prompt_tokens
-        output_tokens = response.usage.completion_tokens - reasoning_tokens
-
-        print("input_tokens: ", input_tokens)
-        print("output_tokens: ", output_tokens)
-        print("reasoning_tokens: ", reasoning_tokens)
-
-        return {'text': text, 
-                'input tokens': input_tokens,
-                'output tokens': output_tokens,
-                'reasoning tokens':reasoning_tokens, 
-                "entire respose":response}
 
 
-    
+def run_command(prompt, model):
+    #if os.getenv("OPENAI_API_KEY"):
+    client = OpenAI(api_key=_get_env("OPENAI_API_KEY"))
+    messages=[{"role": "user", "content": prompt}]
+    response = client.chat.completions.create(
+                model=model,
+               messages=messages
+            )
+    text = response.choices[0].message.content
+    reasoning_tokens = response.usage.completion_tokens_details.reasoning_tokens
+    cached_tokens = response.usage.prompt_tokens_details.cached_tokens
+    return {'text': text, 'cached tokens': cached_tokens, 'reasoning tokens':reasoning_tokens, "entire respose":response}
