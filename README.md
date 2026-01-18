@@ -4,7 +4,7 @@
 This is an official repository of our paper "*OverThink: Slowdown Attacks on Reasoning LLMs*". In this attack, we aim to increase the number of reasoning tokens without manipulating the generated output. 
 
 Please follow the steps below to test our **OverThink** attack.
-
+[Paper](https://arxiv.org/pdf/2502.02542)
 # OverThink updated files
 
 This folder holds the scripts used to (1) compile attack datasets, (2) run the context-agnostic
