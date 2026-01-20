@@ -76,9 +76,9 @@ def compile_freshqa(freshqa_csv, samples, output_path, limit, fetch_urls):
         for idx, attack_prompt in enumerate(attack_prompts):
             attacks[idx].append(attack_prompt)
 
-    data = {"Source": sources, "Answer": answers}
+    data = {"Base_Prompt": sources, "Answer": answers}
     for idx, attack_list in enumerate(attacks, start=1):
-        data[f"Attack_Source_{idx}"] = attack_list
+        data[f"Attack_Prompt_{idx}"] = attack_list
     pd.DataFrame(data).to_csv(output_path, index=False)
 
 
@@ -95,9 +95,9 @@ def compile_squad(samples, output_path, limit):
         for idx, attack_prompt in enumerate(attack_prompts):
             attacks[idx].append(attack_prompt)
 
-    data = {"Source": sources, "Answer": list(squad[:limit]["answers"])}
+    data = {"Base_Prompt": sources, "Answer": list(squad[:limit]["answers"])}
     for idx, attack_list in enumerate(attacks, start=1):
-        data[f"Attack_Source_{idx}"] = attack_list
+        data[f"Attack_Prompt_{idx}"] = attack_list
     pd.DataFrame(data).to_csv(output_path, index=False)
 
 
@@ -125,18 +125,16 @@ def compile_musr(samples, output_dir, limit):
             for idx, attack_prompt in enumerate(attack_prompts):
                 attacks[idx].append(attack_prompt)
 
-        data = {"Source": sources, "Answer": answers}
+        data = {"Base_Prompt": sources, "Answer": answers}
         for idx, attack_list in enumerate(attacks, start=1):
-            data[f"Attack_Source_{idx}"] = attack_list
+            data[f"Attack_Prompt_{idx}"] = attack_list
         pd.DataFrame(data).to_csv(output_dir / output_name, index=False)
 
 
 def main():
     repo_root = Path(__file__).resolve().parent.parent
     default_freshqa = (
-        repo_root
-        / "s&p_submission_exp"
-        / "FreshQA_v12182024 - freshqa.csv"
+         "FreshQA_v12182024 - freshqa.csv"
     )
     default_output = Path(__file__).resolve().parent / "dataset"
 
