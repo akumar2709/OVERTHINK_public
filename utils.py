@@ -48,7 +48,7 @@ def _load_env() -> None:
     if _ENV_LOADED:
         return
     _ENV_LOADED = True
-    env_path = Path(__file__).resolve().parent.parent / ".env"
+    env_path = ".env"
     if load_dotenv is not None:
         load_dotenv(dotenv_path=env_path)
     else:

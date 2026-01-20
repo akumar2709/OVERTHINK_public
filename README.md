@@ -116,7 +116,7 @@ Example:
 python public_repo_update/context_agnostic_hf.py \
   --split freshQA_attack \
   --provider OpenAI \
-  --model o1-preview \
+  --model o3-mini \
   --output-file freshqa_hf.pkl
 ```
 

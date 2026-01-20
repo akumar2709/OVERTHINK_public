@@ -43,7 +43,7 @@ def build_original_prompt(question, source):
 
 
 def get_attack_columns(df):
-    attack_cols = [col for col in df.columns if col.startswith("Attack_Source_")]
+    attack_cols = [col for col in df.columns if col.startswith("Attack_Prompt_")]
 
     def sort_key(col):
         suffix = col.split("_")[-1]
@@ -143,6 +143,7 @@ def extract_thinking_text(response):
     if response is None:
         return None
     
+
     # Handle dict responses with nested 'response' key (your Anthropic format)
     if isinstance(response, dict) and "response" in response:
         actual_response = response["response"]
@@ -279,6 +280,8 @@ def extract_reasoning_tokens(response, debug=False):
     if isinstance(response, dict) and "response" in response:
         actual_response = response["response"]
     
+    if "reasoning tokens" in response and response['reasoning tokens']:
+        return response['reasoning tokens']
     # OpenAI o1: reasoning_tokens in usage.completion_tokens_details
     if hasattr(actual_response, "usage"):
         usage = actual_response.usage
@@ -349,11 +352,11 @@ def run_experiment(
     for i in range(len(attack_cols)):
         df[f"attack_response_{i + 1}"] = None
 
-    token_sums = {"base_source": 0}
-    token_counts = {"base_source": 0}
+    token_sums = {"base_prompt": 0}
+    token_counts = {"base_prompt": 0}
     for i in range(len(attack_cols)):
-        token_sums[f"attack_source_{i + 1}"] = 0
-        token_counts[f"attack_source_{i + 1}"] = 0
+        token_sums[f"attack_prompt_{i + 1}"] = 0
+        token_counts[f"attack_prompt_{i + 1}"] = 0
 
     processed = 0
     for index, row in tqdm(df.iterrows(), total=len(df), desc="Processing dataset"):
@@ -362,30 +365,31 @@ def run_experiment(
         if limit is not None and processed >= limit:
             break
 
-        question = row.get("Question")
-        source = row.get("Source")
-        if question is None:
-            question = row.get("question")
-        if source is None:
-            source = row.get("source")
-        if pd.isna(question):
-            question = ""
-        if pd.isna(source):
-            source = ""
+        # question = row.get("Question")
+        # source = row.get("Source")
+        # if question is None:
+        #     question = row.get("question")
+        # if source is None:
+        #     source = row.get("source")
+        # if pd.isna(question):
+        #     question = ""
+        # if pd.isna(source):
+        #     source = ""
 
-        original_prompt = build_original_prompt(question, source)
-
+        # original_prompt = build_original_prompt(question, source)
+        base_prompt = row.get("Base_Prompt")
         # Process original prompt
         print(f"\n[Sample {processed + 1}] Processing original prompt...", flush=True)
-        responses = {"original_prompt": call_provider(provider, original_prompt, model)}
+        responses = {"original_response": call_provider(provider, base_prompt, model)}
         
         # Enable debug for first sample to see response structure
         debug_mode = (processed == 0)
-        base_tokens = extract_reasoning_tokens(responses["original_prompt"], debug=debug_mode)
+        print(responses["original_response"])
+        base_tokens = extract_reasoning_tokens(responses["original_response"], debug=debug_mode)
         
         if base_tokens is not None:
-            token_sums["base_source"] += base_tokens
-            token_counts["base_source"] += 1
+            token_sums["base_prompt"] += base_tokens
+            token_counts["base_prompt"] += 1
             print(f"  Base reasoning tokens: {base_tokens}", flush=True)
         else:
             print(f"  Base reasoning tokens: n/a", flush=True)
@@ -394,30 +398,30 @@ def run_experiment(
         for i, col in enumerate(attack_cols, start=1):
             attack_prompt = row.get(col)
             if not isinstance(attack_prompt, str) or not attack_prompt.strip():
-                responses[f"attack_prompt_{i}"] = None
+                responses[f"attack_response_{i}"] = None
                 continue
             
             print(f"  Processing attack {i}...", flush=True)
-            responses[f"attack_prompt_{i}"] = call_provider(
+            responses[f"attack_response_{i}"] = call_provider(
                 provider,
                 attack_prompt,
                 model,
             )
-            attack_tokens = extract_reasoning_tokens(responses[f"attack_prompt_{i}"])
+            attack_tokens = extract_reasoning_tokens(responses[f"attack_response_{i}"])
             if attack_tokens is not None:
-                token_sums[f"attack_source_{i}"] += attack_tokens
-                token_counts[f"attack_source_{i}"] += 1
+                token_sums[f"attack_prompt_{i}"] += attack_tokens
+                token_counts[f"attack_prompt_{i}"] += 1
                 print(f"  Attack {i} reasoning tokens: {attack_tokens}", flush=True)
             else:
                 print(f"  Attack {i} reasoning tokens: n/a", flush=True)
 
-        df.at[index, "original_response"] = responses.get("original_prompt")
+        df.at[index, "original_response"] = responses.get("original_response")
         for i in range(len(attack_cols)):
             df.at[index, f"attack_response_{i + 1}"] = responses.get(
-                f"attack_prompt_{i + 1}"
+                f"attack_response_{i + 1}"
             )
 
-        df.to_pickle(output_file)
+        df.to_csv(output_file)
         print_token_averages(token_sums, token_counts)
         processed += 1
 
@@ -440,7 +444,7 @@ def main():
     )
     parser.add_argument(
         "--model",
-        default="o1-preview",
+        default="o3-mini",
         help="Model name passed to the provider (default: %(default)s)",
     )
     parser.add_argument(
@@ -452,7 +456,7 @@ def main():
         "--output-file",
         "--output",
         dest="output_file",
-        default="context_agnostic_hf.pkl",
+        default="context_agnostic_hf.csv",
         help="Path to the pickle file where responses are saved (default: %(default)s)",
     )
     parser.add_argument(
