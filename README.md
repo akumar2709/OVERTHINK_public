@@ -180,3 +180,17 @@ API keys from `.env`. It is imported by `context_agnostic_hf.py`.
 
 If you add new providers, keep the `provider` names in `context_agnostic_hf.py`
 in sync with the wrapper functions in `utils.py`.
+
+## Paper Citation
+```bibtex
+@article{kumar2025overthink,
+  title={Overthink: Slowdown attacks on reasoning llms},
+  author={Kumar, Abhinav and Roh, Jaechul and Naseh, Ali and Karpinska, Marzena and Iyyer, Mohit and Houmansadr, Amir and Bagdasarian, Eugene},
+  journal={arXiv preprint arXiv:2502.02542},
+  year={2025}
+}
+```
+
+## License
+
+MIT
