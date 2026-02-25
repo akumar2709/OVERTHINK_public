@@ -59,7 +59,7 @@ Scripts expect a FreshQA CSV with at least these columns:
 - `answer_0`
 - `fact_type` (used by `icl_evolve.py`; values like `none-changing` or `slow-changing`)
 
-The included file is `public_repo_update/FreshQA_v12182024 - freshqa.csv`. The default
+The included file is `FreshQA_v12182024 - freshqa.csv`. The default
 for `compile_datasets.py` points to `s&p_submission_exp/FreshQA_v12182024 - freshqa.csv`,
 so override with `--freshqa-csv` if you want to use the local copy.
 
@@ -81,9 +81,9 @@ Builds the FreshQA, SQuAD, and MuSR attack CSVs using 7 built-in templates.
 Example:
 
 ```bash
-python public_repo_update/compile_datasets.py \
+python compile_datasets.py \
   --freshqa-csv "FreshQA_v12182024 - freshqa.csv" \
-  --output-dir public_repo_update/dataset \
+  --output-dir dataset \
   --freshqa-limit 100 \
   --squad-limit 100 \
   --musr-limit 50
@@ -113,7 +113,7 @@ as a pickle after each row. It also prints running averages of reasoning tokens 
 Example:
 
 ```bash
-python public_repo_update/context_agnostic_hf.py \
+python context_agnostic_hf.py \
   --split freshQA_attack \
   --provider OpenAI \
   --model o3-mini \
@@ -147,8 +147,8 @@ them by reasoning tokens. Produces a CSV of challenges and a score trajectory pl
 Example:
 
 ```bash
-python public_repo_update/icl_evolve.py \
-  --freshqa-csv "public_repo_update/FreshQA_v12182024 - freshqa.csv" \
+python icl_evolve.py \
+  --freshqa-csv "FreshQA_v12182024 - freshqa.csv" \
   --top-p 0.6 \
   --k 5 \
   --epochs 15 \
